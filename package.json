@@ -1,0 +1,8 @@
+{
+  "name": "qr-dinamico-nvd",
+  "version": "1.0.0",
+  "description": "Sistema de QR Code Dinâmico - Negócio Visível Digital",
+  "dependencies": {
+    "@netlify/blobs": "^8.1.0"
+  }
+}
