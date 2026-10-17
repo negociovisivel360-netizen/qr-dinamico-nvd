@@ -1,0 +1,359 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>QR Dinâmico — Painel NVD</title>
+<style>
+  :root {
+    --dourado: #d4af37;
+    --dourado-escuro: #a8860f;
+    --preto: #0d0d0d;
+    --preto-card: #1a1a1a;
+    --cinza: #888;
+  }
+  * { box-sizing: border-box; }
+  body {
+    background: var(--preto);
+    color: #f2f2f2;
+    font-family: -apple-system, "Segoe UI", Roboto, sans-serif;
+    margin: 0;
+    padding: 16px;
+  }
+  h1 {
+    color: var(--dourado);
+    font-size: 20px;
+    text-align: center;
+    margin-bottom: 4px;
+  }
+  .sub { text-align: center; color: var(--cinza); font-size: 13px; margin-bottom: 20px; }
+
+  #login-box { max-width: 340px; margin: 60px auto; text-align: center; }
+  #login-box input {
+    width: 100%; padding: 12px; margin-top: 12px; border-radius: 8px;
+    border: 1px solid var(--dourado-escuro); background: var(--preto-card); color: #fff; font-size: 15px;
+  }
+  button {
+    background: linear-gradient(135deg, var(--dourado), var(--dourado-escuro));
+    color: #000; border: none; padding: 12px 18px; border-radius: 8px;
+    font-weight: 600; font-size: 14px; cursor: pointer; margin-top: 12px; width: 100%;
+  }
+  button.secundario {
+    background: transparent; border: 1px solid var(--dourado-escuro); color: var(--dourado);
+  }
+  button.perigo { background: #4a1a1a; color: #ff8080; border: 1px solid #7a2a2a; }
+
+  #app { display: none; max-width: 720px; margin: 0 auto; }
+
+  .card {
+    background: var(--preto-card); border: 1px solid #2a2a2a; border-radius: 12px;
+    padding: 16px; margin-bottom: 14px;
+  }
+  .card-nova input { width: 100%; padding: 10px; margin-bottom: 8px; border-radius: 8px;
+    border: 1px solid #333; background: #111; color: #fff; font-size: 14px; }
+
+  .cliente {
+    display: flex; gap: 12px; align-items: flex-start;
+  }
+  .cliente img { width: 72px; height: 72px; border-radius: 6px; background: #fff; }
+  .cliente-info { flex: 1; min-width: 0; }
+  .cliente-info h3 { margin: 0 0 4px; color: var(--dourado); font-size: 15px; }
+  .cliente-info .link-curto { font-size: 12px; color: var(--cinza); word-break: break-all; margin-bottom: 6px; }
+  .cliente-info input {
+    width: 100%; padding: 8px; margin-bottom: 6px; border-radius: 6px;
+    border: 1px solid #333; background: #111; color: #fff; font-size: 13px;
+  }
+  .badge {
+    display: inline-block; background: #222; color: var(--dourado); font-size: 12px;
+    padding: 3px 8px; border-radius: 999px; margin-bottom: 6px;
+  }
+  .acoes { display: flex; gap: 8px; margin-top: 6px; }
+  .acoes button { margin-top: 0; padding: 8px 10px; font-size: 12px; flex: 1; }
+
+  #msg { text-align: center; font-size: 13px; margin: 10px 0; min-height: 18px; }
+  .erro { color: #ff8080; }
+  .ok { color: #7ee787; }
+</style>
+</head>
+<body>
+
+<h1>QR Code Dinâmico</h1>
+<div class="sub">Painel — Negócio Visível Digital</div>
+
+<div id="login-box">
+  <p>Digite a senha do painel:</p>
+  <input type="password" id="senha-input" placeholder="Senha">
+  <button onclick="entrar()">Entrar</button>
+  <div id="login-erro" class="erro" style="margin-top:10px;font-size:13px;"></div>
+</div>
+
+<div id="app">
+  <div class="card card-nova">
+    <h3 style="color:var(--dourado);margin-top:0;">Gerar lote de plaquinhas</h3>
+    <p style="font-size:12px;color:var(--cinza);margin-top:-4px;">Cria QRs em branco pra imprimir antes de sair pra prospecção. Você ativa cada um só quando vender.</p>
+    <input id="lote-qtd" type="number" placeholder="Quantidade (ex: 30)" value="30">
+    <div style="display:flex; gap:8px;">
+      <button onclick="gerarLote()">Gerar lote</button>
+      <button class="secundario" onclick="abrirPaginaImpressao()">Imprimir disponíveis</button>
+    </div>
+  </div>
+
+  <div class="card card-nova">
+    <h3 style="color:var(--dourado);margin-top:0;">Ativar / cadastrar avulso</h3>
+    <input id="novo-nome" placeholder="Nome do cliente (ex: Barbearia Collins)">
+    <input id="novo-slug" placeholder="Identificador curto (ex: barbearia-collins)">
+    <input id="novo-destino" placeholder="Link de destino (ex: link da avaliação Google)">
+    <button onclick="criar()">Criar QR</button>
+  </div>
+
+  <div id="msg"></div>
+
+  <div style="display:flex; gap:8px; margin-bottom:12px;">
+    <button id="tab-disponivel" class="secundario" onclick="mudarAba('disponivel')" style="flex:1;">Disponíveis</button>
+    <button id="tab-ativado" class="secundario" onclick="mudarAba('ativado')" style="flex:1;">Ativados</button>
+  </div>
+
+  <div id="lista"></div>
+</div>
+
+<script>
+  const SITE_URL = window.location.origin;
+  let SENHA = "";
+  let TODOS_ITENS = [];
+  let ABA_ATUAL = "disponivel";
+
+  function entrar() {
+    SENHA = document.getElementById("senha-input").value.trim();
+    if (!SENHA) return;
+    carregar();
+  }
+
+  async function apiFetch(path, options = {}) {
+    const res = await fetch(SITE_URL + "/api" + path, {
+      ...options,
+      headers: {
+        "Content-Type": "application/json",
+        "x-admin-password": SENHA,
+        ...(options.headers || {})
+      }
+    });
+    if (res.status === 401) throw new Error("SENHA_INVALIDA");
+    return res;
+  }
+
+  async function carregar() {
+    try {
+      const res = await apiFetch("/");
+      if (!res.ok) throw new Error("SENHA_INVALIDA");
+      const items = await res.json();
+      document.getElementById("login-box").style.display = "none";
+      document.getElementById("app").style.display = "block";
+      TODOS_ITENS = items;
+      mudarAba(ABA_ATUAL);
+    } catch (e) {
+      document.getElementById("login-erro").textContent = "Senha incorreta.";
+    }
+  }
+
+  function mudarAba(aba) {
+    ABA_ATUAL = aba;
+    document.getElementById("tab-disponivel").style.background = aba === "disponivel" ? "linear-gradient(135deg, var(--dourado), var(--dourado-escuro))" : "transparent";
+    document.getElementById("tab-disponivel").style.color = aba === "disponivel" ? "#000" : "var(--dourado)";
+    document.getElementById("tab-ativado").style.background = aba === "ativado" ? "linear-gradient(135deg, var(--dourado), var(--dourado-escuro))" : "transparent";
+    document.getElementById("tab-ativado").style.color = aba === "ativado" ? "#000" : "var(--dourado)";
+    renderLista();
+  }
+
+  function renderLista() {
+    const lista = document.getElementById("lista");
+    const items = TODOS_ITENS.filter(item =>
+      ABA_ATUAL === "disponivel" ? !item.destino : !!item.destino
+    );
+
+    if (!items.length) {
+      lista.innerHTML = `<p style="text-align:center;color:var(--cinza)">${ABA_ATUAL === "disponivel" ? "Nenhum QR disponível. Gere um lote acima." : "Nenhum QR ativado ainda."}</p>`;
+      return;
+    }
+
+    lista.innerHTML = items.map(item => {
+      const linkCurto = `${SITE_URL}/r/${item.slug}`;
+      const qrImg = `https://api.qrserver.com/v1/create-qr-code/?size=150x150&data=${encodeURIComponent(linkCurto)}`;
+
+      if (ABA_ATUAL === "disponivel") {
+        return `
+          <div class="card">
+            <div class="cliente">
+              <img src="${qrImg}" alt="QR">
+              <div class="cliente-info">
+                <h3>${item.slug}</h3>
+                <div class="link-curto">${linkCurto}</div>
+                <input id="ativar-nome-${item.slug}" placeholder="Nome do cliente">
+                <input id="ativar-destino-${item.slug}" placeholder="Link de destino (Google)">
+                <div class="acoes">
+                  <button onclick="ativar('${item.slug}')">Ativar essa plaquinha</button>
+                </div>
+              </div>
+            </div>
+          </div>
+        `;
+      }
+
+      return `
+        <div class="card">
+          <div class="cliente">
+            <img src="${qrImg}" alt="QR">
+            <div class="cliente-info">
+              <h3>${item.nome || item.slug}</h3>
+              <div class="link-curto">${linkCurto}</div>
+              <span class="badge">${item.cliques || 0} escaneamentos</span>
+              <input id="destino-${item.slug}" value="${item.destino || ''}" placeholder="Link de destino">
+              <div class="acoes">
+                <button class="secundario" onclick="salvar('${item.slug}')">Salvar novo destino</button>
+                <button onclick="baixarQR('${linkCurto}', '${item.nome || item.slug}')">Baixar QR</button>
+                <button class="perigo" onclick="excluir('${item.slug}')">Excluir</button>
+              </div>
+            </div>
+          </div>
+        </div>
+      `;
+    }).join("");
+  }
+
+  async function gerarLote() {
+    const quantidade = parseInt(document.getElementById("lote-qtd").value) || 0;
+    if (quantidade < 1) {
+      mostrarMsg("Informe uma quantidade válida.", true);
+      return;
+    }
+    const res = await apiFetch("/lote", {
+      method: "POST",
+      body: JSON.stringify({ quantidade })
+    });
+    const data = await res.json();
+    if (!res.ok) {
+      mostrarMsg(data.erro || "Erro ao gerar lote", true);
+      return;
+    }
+    mostrarMsg(`${data.criados.length} plaquinhas geradas!`);
+    ABA_ATUAL = "disponivel";
+    const listaRes = await apiFetch("/");
+    TODOS_ITENS = await listaRes.json();
+    mudarAba("disponivel");
+  }
+
+  async function ativar(slug) {
+    const nome = document.getElementById(`ativar-nome-${slug}`).value.trim();
+    const destino = document.getElementById(`ativar-destino-${slug}`).value.trim();
+    if (!destino) {
+      mostrarMsg("Cole o link de destino antes de ativar.", true);
+      return;
+    }
+    const res = await apiFetch("/" + slug, {
+      method: "PUT",
+      body: JSON.stringify({ nome, destino })
+    });
+    if (res.ok) {
+      mostrarMsg("Plaquinha ativada! Pode entregar pro cliente.");
+      carregar();
+    } else {
+      mostrarMsg("Erro ao ativar", true);
+    }
+  }
+
+  function abrirPaginaImpressao() {
+    const disponiveis = TODOS_ITENS.filter(item => !item.destino);
+    if (!disponiveis.length) {
+      mostrarMsg("Não há QRs disponíveis pra imprimir. Gere um lote primeiro.", true);
+      return;
+    }
+    const janela = window.open("", "_blank");
+    const linhas = disponiveis.map(item => {
+      const linkCurto = `${SITE_URL}/r/${item.slug}`;
+      const qrImg = `https://api.qrserver.com/v1/create-qr-code/?size=300x300&data=${encodeURIComponent(linkCurto)}`;
+      return `
+        <div style="display:inline-block; width:150px; margin:10px; text-align:center; font-family:sans-serif;">
+          <img src="${qrImg}" style="width:100%;">
+          <div style="font-size:10px; color:#999; margin-top:4px;">${item.slug}</div>
+        </div>
+      `;
+    }).join("");
+    janela.document.write(`
+      <html>
+        <head><title>Impressão - QRs disponíveis</title></head>
+        <body style="text-align:center;">
+          <h2>QRs disponíveis para plaquinhas (${disponiveis.length})</h2>
+          <p style="font-size:12px;color:#666;">Código pequeno abaixo é só referência interna — não aparece na plaquinha final.</p>
+          ${linhas}
+          <script>window.onload = () => window.print();<\/script>
+        </body>
+      </html>
+    `);
+  }
+
+  async function criar() {
+    const nome = document.getElementById("novo-nome").value.trim();
+    const slugInput = document.getElementById("novo-slug").value.trim();
+    const destino = document.getElementById("novo-destino").value.trim();
+    const slug = slugInput.toLowerCase().replace(/[^a-z0-9-]/g, "-");
+
+    if (!slug || !destino) {
+      mostrarMsg("Preencha identificador e destino.", true);
+      return;
+    }
+    const res = await apiFetch("/", {
+      method: "POST",
+      body: JSON.stringify({ slug, nome, destino })
+    });
+    const data = await res.json();
+    if (!res.ok) {
+      mostrarMsg(data.erro || "Erro ao criar", true);
+      return;
+    }
+    mostrarMsg("QR criado com sucesso!");
+    document.getElementById("novo-nome").value = "";
+    document.getElementById("novo-slug").value = "";
+    document.getElementById("novo-destino").value = "";
+    carregar();
+  }
+
+  async function salvar(slug) {
+    const destino = document.getElementById(`destino-${slug}`).value.trim();
+    const res = await apiFetch("/" + slug, {
+      method: "PUT",
+      body: JSON.stringify({ destino })
+    });
+    if (res.ok) {
+      mostrarMsg("Destino atualizado!");
+    } else {
+      mostrarMsg("Erro ao salvar", true);
+    }
+  }
+
+  async function excluir(slug) {
+    if (!confirm("Excluir este QR? Ele vai parar de funcionar.")) return;
+    const res = await apiFetch("/" + slug, { method: "DELETE" });
+    if (res.ok) {
+      mostrarMsg("QR excluído.");
+      carregar();
+    }
+  }
+
+  function baixarQR(linkCurto, nome) {
+    const url = `https://api.qrserver.com/v1/create-qr-code/?size=500x500&data=${encodeURIComponent(linkCurto)}`;
+    const a = document.createElement("a");
+    a.href = url;
+    a.download = `qr-${nome}.png`;
+    a.target = "_blank";
+    a.click();
+  }
+
+  function mostrarMsg(texto, erro = false) {
+    const msg = document.getElementById("msg");
+    msg.textContent = texto;
+    msg.className = erro ? "erro" : "ok";
+    setTimeout(() => { msg.textContent = ""; }, 3000);
+  }
+</script>
+
+</body>
+</html>
