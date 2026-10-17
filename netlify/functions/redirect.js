@@ -11,7 +11,11 @@ exports.handler = async (event) => {
   }
 
   try {
-    const store = getStore("redirects");
+    const store = getStore({
+      name: "redirects",
+      siteID: process.env.NETLIFY_SITE_ID,
+      token: process.env.NETLIFY_API_TOKEN
+    });
     const data = await store.get(slug, { type: "json" });
 
     if (!data || !data.destino) {
