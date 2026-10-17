@@ -29,7 +29,11 @@ exports.handler = async (event) => {
     return json(401, { erro: "Senha inválida" });
   }
 
-  const store = getStore("redirects");
+  const store = getStore({
+    name: "redirects",
+    siteID: process.env.NETLIFY_SITE_ID,
+    token: process.env.NETLIFY_API_TOKEN
+  });
   const path = event.path.replace(/^\/api\/?/, "").replace(/^\/\.netlify\/functions\/api\/?/, "");
   const slugFromPath = path || (event.queryStringParameters && event.queryStringParameters.slug);
 
