@@ -1,7 +1,9 @@
 const { getStore } = require("@netlify/blobs");
 
 exports.handler = async (event) => {
-  const slug = (event.queryStringParameters && event.queryStringParameters.slug) || "";
+  const fromQuery = (event.queryStringParameters && event.queryStringParameters.slug) || "";
+  const fromPath = (event.path || "").replace(/^\/r\//, "").replace(/\/$/, "");
+  const slug = fromQuery || fromPath;
 
   if (!slug) {
     return {
