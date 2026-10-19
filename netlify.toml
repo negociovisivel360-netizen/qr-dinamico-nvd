@@ -3,8 +3,8 @@
   publish = "public"
 
 [[redirects]]
-  from = "/r/:slug"
-  to = "/.netlify/functions/redirect?slug=:slug"
+  from = "/r/*"
+  to = "/.netlify/functions/redirect"
   status = 200
   force = true
 
