@@ -73,6 +73,37 @@
   #msg { text-align: center; font-size: 13px; margin: 10px 0; min-height: 18px; }
   .erro { color: #ff8080; }
   .ok { color: #7ee787; }
+
+  #btn-scanner {
+    position: sticky; top: 0; z-index: 20; margin-bottom: 14px;
+    display: flex; align-items: center; justify-content: center; gap: 8px;
+  }
+
+  #scanner-overlay {
+    display: none; position: fixed; inset: 0; background: #000; z-index: 50;
+    flex-direction: column;
+  }
+  #scanner-overlay.aberto { display: flex; }
+  #scanner-video-wrap { position: relative; flex: 1; overflow: hidden; }
+  #scanner-video { width: 100%; height: 100%; object-fit: cover; }
+  #scanner-moldura {
+    position: absolute; top: 50%; left: 50%; transform: translate(-50%, -50%);
+    width: 70%; max-width: 280px; aspect-ratio: 1; border: 3px solid var(--dourado);
+    border-radius: 16px; box-shadow: 0 0 0 2000px rgba(0,0,0,0.5);
+  }
+  #scanner-topo {
+    display: flex; justify-content: space-between; align-items: center;
+    padding: 14px 16px; background: var(--preto);
+  }
+  #scanner-topo h3 { color: var(--dourado); margin: 0; font-size: 16px; }
+  #scanner-fechar {
+    background: transparent; border: 1px solid var(--dourado-escuro); color: var(--dourado);
+    width: auto; margin: 0; padding: 8px 14px; border-radius: 8px;
+  }
+  #scanner-resultado {
+    background: var(--preto); padding: 16px; max-height: 60vh; overflow-y: auto;
+  }
+  #scanner-resultado .card { margin-bottom: 0; }
 </style>
 </head>
 <body>
@@ -88,6 +119,10 @@
 </div>
 
 <div id="app">
+  <div id="btn-scanner">
+    <button onclick="abrirScanner()">📷 Escanear QR da plaquinha</button>
+  </div>
+
   <div class="card card-nova">
     <h3 style="color:var(--dourado);margin-top:0;">Gerar lote de plaquinhas</h3>
     <p style="font-size:12px;color:var(--cinza);margin-top:-4px;">Cria QRs em branco pra imprimir antes de sair pra prospecção. Você ativa cada um só quando vender.</p>
@@ -116,6 +151,21 @@
   <div id="lista"></div>
 </div>
 
+<div id="scanner-overlay">
+  <div id="scanner-topo">
+    <h3>Escanear plaquinha</h3>
+    <button id="scanner-fechar" onclick="fecharScanner()">Fechar</button>
+  </div>
+  <div id="scanner-video-wrap">
+    <video id="scanner-video" playsinline autoplay muted></video>
+    <div id="scanner-moldura"></div>
+  </div>
+  <div id="scanner-resultado"></div>
+</div>
+
+<canvas id="scanner-canvas" style="display:none;"></canvas>
+
+<script src="https://cdnjs.cloudflare.com/ajax/libs/jsqr/1.4.0/jsQR.js"></script>
 <script>
   const SITE_URL = window.location.origin;
   let SENHA = "";
@@ -345,6 +395,161 @@
     a.download = `qr-${nome}.png`;
     a.target = "_blank";
     a.click();
+  }
+
+  // ---------- Scanner de câmera ----------
+  let scannerStream = null;
+  let scannerRodando = false;
+
+  async function abrirScanner() {
+    const overlay = document.getElementById("scanner-overlay");
+    const resultado = document.getElementById("scanner-resultado");
+    resultado.innerHTML = "";
+    overlay.classList.add("aberto");
+
+    try {
+      scannerStream = await navigator.mediaDevices.getUserMedia({
+        video: { facingMode: "environment" }
+      });
+      const video = document.getElementById("scanner-video");
+      video.srcObject = scannerStream;
+      await video.play();
+      scannerRodando = true;
+      requestAnimationFrame(loopScanner);
+    } catch (e) {
+      resultado.innerHTML = `<div class="card"><p class="erro" style="text-align:center;">Não foi possível acessar a câmera. Verifique a permissão do navegador.</p></div>`;
+    }
+  }
+
+  function fecharScanner() {
+    scannerRodando = false;
+    if (scannerStream) {
+      scannerStream.getTracks().forEach(t => t.stop());
+      scannerStream = null;
+    }
+    document.getElementById("scanner-overlay").classList.remove("aberto");
+    document.getElementById("scanner-resultado").innerHTML = "";
+  }
+
+  function loopScanner() {
+    if (!scannerRodando) return;
+    const video = document.getElementById("scanner-video");
+    const canvas = document.getElementById("scanner-canvas");
+
+    if (video.readyState === video.HAVE_ENOUGH_DATA) {
+      canvas.width = video.videoWidth;
+      canvas.height = video.videoHeight;
+      const ctx = canvas.getContext("2d");
+      ctx.drawImage(video, 0, 0, canvas.width, canvas.height);
+      const imageData = ctx.getImageData(0, 0, canvas.width, canvas.height);
+      const codigo = jsQR(imageData.data, canvas.width, canvas.height);
+      if (codigo && codigo.data) {
+        processarLeituraScanner(codigo.data);
+        return;
+      }
+    }
+    requestAnimationFrame(loopScanner);
+  }
+
+  function extrairSlugDoTexto(texto) {
+    const match = texto.match(/\/r\/([a-z0-9-]+)/i);
+    if (match) return match[1];
+    // se não for uma URL conhecida, tenta usar o texto puro como slug
+    return texto.trim().toLowerCase().replace(/[^a-z0-9-]/g, "");
+  }
+
+  async function processarLeituraScanner(textoLido) {
+    scannerRodando = false;
+    if (scannerStream) {
+      scannerStream.getTracks().forEach(t => t.stop());
+      scannerStream = null;
+    }
+
+    const slug = extrairSlugDoTexto(textoLido);
+    const resultado = document.getElementById("scanner-resultado");
+    resultado.innerHTML = `<div class="card"><p style="text-align:center;color:var(--cinza)">Verificando ${slug}...</p></div>`;
+
+    let item = null;
+    try {
+      const res = await apiFetch("/" + slug);
+      if (res.ok) item = await res.json();
+    } catch (e) {}
+
+    const linkCurto = `${SITE_URL}/r/${slug}`;
+
+    if (!item || !item.slug) {
+      resultado.innerHTML = `
+        <div class="card">
+          <h3 style="color:var(--dourado);margin-top:0;">QR não reconhecido</h3>
+          <p style="color:var(--cinza);font-size:13px;">Esse código (<b>${slug}</b>) não existe no sistema. Pode ser de outro lote ou já ter sido excluído.</p>
+          <button class="secundario" onclick="abrirScanner()">Escanear outro</button>
+        </div>
+      `;
+      return;
+    }
+
+    if (!item.destino) {
+      resultado.innerHTML = `
+        <div class="card">
+          <h3 style="color:var(--dourado);margin-top:0;">Disponível: ${item.slug}</h3>
+          <p style="color:var(--cinza);font-size:13px;">Essa plaquinha ainda não foi ativada. Preencha pra entregar ao cliente:</p>
+          <input id="scan-nome" placeholder="Nome do cliente">
+          <input id="scan-destino" placeholder="Link de destino (Google)">
+          <div class="acoes">
+            <button onclick="ativarViaScanner('${item.slug}')">Ativar essa plaquinha</button>
+          </div>
+          <button class="secundario" onclick="abrirScanner()">Escanear outro</button>
+        </div>
+      `;
+    } else {
+      resultado.innerHTML = `
+        <div class="card">
+          <h3 style="color:var(--dourado);margin-top:0;">Já ativado: ${item.nome || item.slug}</h3>
+          <span class="badge">${item.cliques || 0} escaneamentos</span>
+          <p style="color:var(--cinza);font-size:12px;word-break:break-all;">Apontando pra: ${item.destino}</p>
+          <input id="scan-destino-edit" value="${item.destino}" placeholder="Link de destino">
+          <div class="acoes">
+            <button onclick="salvarViaScanner('${item.slug}')">Salvar novo destino</button>
+          </div>
+          <button class="secundario" onclick="abrirScanner()">Escanear outro</button>
+        </div>
+      `;
+    }
+  }
+
+  async function ativarViaScanner(slug) {
+    const nome = document.getElementById("scan-nome").value.trim();
+    const destino = document.getElementById("scan-destino").value.trim();
+    if (!destino) {
+      mostrarMsg("Cole o link de destino antes de ativar.", true);
+      return;
+    }
+    const res = await apiFetch("/" + slug, {
+      method: "PUT",
+      body: JSON.stringify({ nome, destino })
+    });
+    if (res.ok) {
+      fecharScanner();
+      mostrarMsg("Plaquinha ativada! Pode entregar pro cliente.");
+      carregar();
+    } else {
+      mostrarMsg("Erro ao ativar", true);
+    }
+  }
+
+  async function salvarViaScanner(slug) {
+    const destino = document.getElementById("scan-destino-edit").value.trim();
+    const res = await apiFetch("/" + slug, {
+      method: "PUT",
+      body: JSON.stringify({ destino })
+    });
+    if (res.ok) {
+      fecharScanner();
+      mostrarMsg("Destino atualizado!");
+      carregar();
+    } else {
+      mostrarMsg("Erro ao salvar", true);
+    }
   }
 
   function mostrarMsg(texto, erro = false) {
