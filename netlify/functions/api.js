@@ -38,6 +38,13 @@ exports.handler = async (event) => {
   const slugFromPath = path || (event.queryStringParameters && event.queryStringParameters.slug);
 
   try {
+    // Busca um único QR pelo identificador (usado pelo scanner de câmera)
+    if (event.httpMethod === "GET" && slugFromPath) {
+      const data = await store.get(slugFromPath, { type: "json" });
+      if (!data) return json(404, { erro: "QR não encontrado" });
+      return json(200, { slug: slugFromPath, ...data });
+    }
+
     if (event.httpMethod === "GET") {
       const { blobs } = await store.list();
       const items = [];
