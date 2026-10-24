@@ -400,29 +400,48 @@
   // ---------- Scanner de câmera ----------
   let scannerStream = null;
   let scannerRodando = false;
+  let scannerCtx = null;
 
   async function abrirScanner() {
     const overlay = document.getElementById("scanner-overlay");
     const resultado = document.getElementById("scanner-resultado");
-    resultado.innerHTML = "";
+    resultado.innerHTML = `<div class="card"><p style="text-align:center;color:var(--cinza)">Procurando QR Code...</p></div>`;
     overlay.classList.add("aberto");
+
+    if (typeof jsQR !== "function") {
+      resultado.innerHTML = `<div class="card"><p class="erro" style="text-align:center;">A biblioteca de leitura não carregou (sem conexão?). Feche e tente novamente.</p></div>`;
+      return;
+    }
 
     try {
       scannerStream = await navigator.mediaDevices.getUserMedia({
-        video: { facingMode: "environment" }
+        video: { facingMode: { ideal: "environment" } }
       });
       const video = document.getElementById("scanner-video");
       video.srcObject = scannerStream;
+
+      // Garante que videoWidth/videoHeight já estão disponíveis antes de processar frames
+      await new Promise((resolve) => {
+        if (video.readyState >= 2 && video.videoWidth > 0) return resolve();
+        video.onloadedmetadata = () => resolve();
+      });
       await video.play();
+
+      const canvas = document.getElementById("scanner-canvas");
+      // willReadFrequently acelera MUITO a leitura repetida de pixels no Safari/Chrome mobile
+      scannerCtx = canvas.getContext("2d", { willReadFrequently: true });
+
       scannerRodando = true;
       requestAnimationFrame(loopScanner);
     } catch (e) {
+      console.error("Erro ao abrir câmera:", e);
       resultado.innerHTML = `<div class="card"><p class="erro" style="text-align:center;">Não foi possível acessar a câmera. Verifique a permissão do navegador.</p></div>`;
     }
   }
 
   function fecharScanner() {
     scannerRodando = false;
+    scannerCtx = null;
     if (scannerStream) {
       scannerStream.getTracks().forEach(t => t.stop());
       scannerStream = null;
@@ -436,18 +455,34 @@
     const video = document.getElementById("scanner-video");
     const canvas = document.getElementById("scanner-canvas");
 
-    if (video.readyState === video.HAVE_ENOUGH_DATA) {
-      canvas.width = video.videoWidth;
-      canvas.height = video.videoHeight;
-      const ctx = canvas.getContext("2d");
-      ctx.drawImage(video, 0, 0, canvas.width, canvas.height);
-      const imageData = ctx.getImageData(0, 0, canvas.width, canvas.height);
-      const codigo = jsQR(imageData.data, canvas.width, canvas.height);
-      if (codigo && codigo.data) {
-        processarLeituraScanner(codigo.data);
-        return;
+    try {
+      if (
+        video.readyState === video.HAVE_ENOUGH_DATA &&
+        video.videoWidth > 0 &&
+        video.videoHeight > 0 &&
+        scannerCtx
+      ) {
+        // Reduz a resolução processada (acelera MUITO em celulares, evita travar o loop)
+        const maxLado = 480;
+        const escala = Math.min(1, maxLado / Math.max(video.videoWidth, video.videoHeight));
+        const w = Math.max(1, Math.floor(video.videoWidth * escala));
+        const h = Math.max(1, Math.floor(video.videoHeight * escala));
+
+        canvas.width = w;
+        canvas.height = h;
+        scannerCtx.drawImage(video, 0, 0, w, h);
+        const imageData = scannerCtx.getImageData(0, 0, w, h);
+        const codigo = jsQR(imageData.data, w, h, { inversionAttempts: "attemptBoth" });
+        if (codigo && codigo.data) {
+          processarLeituraScanner(codigo.data);
+          return;
+        }
       }
+    } catch (e) {
+      // Um erro pontual num frame não derruba mais o loop inteiro
+      console.error("Erro ao processar frame do scanner:", e);
     }
+
     requestAnimationFrame(loopScanner);
   }
 
