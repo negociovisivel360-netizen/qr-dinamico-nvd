@@ -165,7 +165,6 @@
 
 <canvas id="scanner-canvas" style="display:none;"></canvas>
 
-<script src="https://cdnjs.cloudflare.com/ajax/libs/jsqr/1.4.0/jsQR.js"></script>
 <script>
   const SITE_URL = window.location.origin;
   let SENHA = "";
@@ -401,17 +400,59 @@
   let scannerStream = null;
   let scannerRodando = false;
   let scannerCtx = null;
+  let jsQRCarregando = null;
+
+  function carregarScriptScanner(url) {
+    return new Promise((resolve, reject) => {
+      const s = document.createElement("script");
+      s.src = url;
+      s.onload = () => resolve();
+      s.onerror = () => reject(new Error("Falha ao carregar " + url));
+      document.head.appendChild(s);
+    });
+  }
+
+  // Tenta vários servidores diferentes até um funcionar — evita depender de um único CDN
+  async function garantirJsQR() {
+    if (typeof jsQR === "function") return true;
+    if (jsQRCarregando) return jsQRCarregando;
+
+    const urls = [
+      "https://cdn.jsdelivr.net/npm/jsqr@1.4.0/dist/jsQR.js",
+      "https://cdnjs.cloudflare.com/ajax/libs/jsqr/1.4.0/jsQR.js",
+      "https://unpkg.com/jsqr@1.4.0/dist/jsQR.js"
+    ];
+
+    jsQRCarregando = (async () => {
+      for (const url of urls) {
+        try {
+          await carregarScriptScanner(url);
+          if (typeof jsQR === "function") return true;
+        } catch (e) {
+          // tenta o próximo servidor da lista
+        }
+      }
+      return false;
+    })();
+
+    const ok = await jsQRCarregando;
+    jsQRCarregando = null;
+    return ok;
+  }
 
   async function abrirScanner() {
     const overlay = document.getElementById("scanner-overlay");
     const resultado = document.getElementById("scanner-resultado");
-    resultado.innerHTML = `<div class="card"><p style="text-align:center;color:var(--cinza)">Procurando QR Code...</p></div>`;
+    resultado.innerHTML = `<div class="card"><p style="text-align:center;color:var(--cinza)">Preparando a câmera...</p></div>`;
     overlay.classList.add("aberto");
 
-    if (typeof jsQR !== "function") {
-      resultado.innerHTML = `<div class="card"><p class="erro" style="text-align:center;">A biblioteca de leitura não carregou (sem conexão?). Feche e tente novamente.</p></div>`;
+    const bibliotecaOk = await garantirJsQR();
+    if (!bibliotecaOk) {
+      resultado.innerHTML = `<div class="card"><p class="erro" style="text-align:center;">Não consegui carregar a biblioteca de leitura em nenhum servidor. Verifique sua internet e tente novamente.</p></div>`;
       return;
     }
+
+    resultado.innerHTML = `<div class="card"><p style="text-align:center;color:var(--cinza)">Procurando QR Code...</p></div>`;
 
     try {
       scannerStream = await navigator.mediaDevices.getUserMedia({
